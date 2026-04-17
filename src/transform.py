@@ -45,6 +45,7 @@ def load_raw():
                 file,
                 separator=";",
                 encoding="latin-1",
+                schema_overrides={"cnpj": pl.Utf8},
                 infer_schema_length=1000,
                 ignore_errors=True,
                 truncate_ragged_lines=True,
@@ -120,9 +121,27 @@ def add_snapshot_date(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+# def normalize(df: pl.DataFrame) -> pl.DataFrame:
+#     return df.with_columns(
+#         [
+#             pl.coalesce(
+#                 [
+#                     pl.col("data_validade").str.to_date(
+#                         format="%d/%m/%Y", strict=False
+#                     ),
+#                     pl.col("data_validade").str.to_date(
+#                         format="%Y-%m-%d", strict=False
+#                     ),
+#                 ]
+#             ).alias("data_validade")
+#         ]
+#     )
+
+
 def normalize(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(
         [
+            # data_validade
             pl.coalesce(
                 [
                     pl.col("data_validade").str.to_date(
@@ -132,7 +151,8 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
                         format="%Y-%m-%d", strict=False
                     ),
                 ]
-            ).alias("data_validade")
+            ).alias("data_validade"),
+            pl.col("data_snapshot").cast(pl.Date).alias("data_snapshot"),
         ]
     )
 
@@ -163,6 +183,7 @@ def save_silver(df: pl.DataFrame):
 if __name__ == "__main__":
     df = load_raw()
     df = add_snapshot_date(df)
+
     df = normalize(df)
     df = classify_categoria(df)
     save_silver(df)

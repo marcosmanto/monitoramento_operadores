@@ -19,7 +19,8 @@ prefect.db-journal
 # --- Data Outputs ---
 # Ignore all generated data files.
 # Add a .gitkeep file in these directories if you want to commit the empty folder structure.
-data/raw/
+data/raw/*
+!data/raw/legacy/
 data/silver/
 data/gold/
 

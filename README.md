@@ -1,4 +1,4 @@
-# Monitoramento de Operadores de Transporte da ANTT
+# Monitoramento de Operadores TRIIP ANTT
 
 Este projeto implementa um pipeline de dados para extrair, transformar e agregar informações sobre as empresas de transporte de passageiros (Regular, Fretamento e Semiurbano) habilitadas pela Agência Nacional de Transportes Terrestres (ANTT), a partir de seu portal de dados abertos.
 
@@ -8,6 +8,7 @@ O objetivo é criar uma série histórica confiável do número de operadores at
 
 - **Extração Automática**: Baixa todos os datasets de operadores habilitados (Fretamento, Regular, Semiurbano) diretamente da API de Dados Abertos da ANTT.
 - **Limpeza e Padronização**: Unifica os múltiplos arquivos CSV, que possuem schemas e codificações diferentes, em um formato padronizado.
+- **Integração de Dados Legados**: Incorpora snapshots históricos (CSVs antigos) armazenados localmente na pasta `data/raw/legacy`, garantindo uma série temporal mais abrangente.
 - **Série Histórica**: Processa os snapshots mensais para gerar uma série histórica anual do número de operadores únicos por categoria.
 - **Orquestração Robusta**: Utiliza **Prefect** para orquestrar o pipeline (Extract → Transform → Aggregate), garantindo a ordem de execução, logs detalhados e resiliência.
 - **Versionamento de Dados**: Salva os artefatos das camadas Silver e Gold com um timestamp, criando um histórico de execuções e facilitando a rastreabilidade.
@@ -25,9 +26,10 @@ O objetivo é criar uma série histórica confiável do número de operadores at
 ```text
 .
 ├── data/
-│   ├── raw/      # CSVs brutos baixados da ANTT
-│   ├── silver/   # Dados limpos e unificados (Parquet)
-│   └── gold/     # Dados agregados para análise (Parquet)
+│   ├── raw/        # CSVs brutos baixados da ANTT
+│   │   └── legacy/ # Arquivos CSV de histórico legado
+│   ├── silver/     # Dados limpos e unificados (Parquet)
+│   └── gold/       # Dados agregados para análise (Parquet)
 ├── src/
 │   ├── extract.py
 │   ├── transform.py
@@ -64,7 +66,7 @@ Ao final da execução, os arquivos processados estarão disponíveis nas pastas
 
 ## 📊 Camadas de Dados (Medallion Architecture)
 
-- **Raw (`data/raw`):** Contém os arquivos CSV originais baixados da ANTT. A pasta é limpa a cada execução para garantir que apenas os dados mais recentes sejam processados.
+- **Raw (`data/raw`):** Contém os arquivos CSV originais baixados da ANTT. A raiz da pasta é limpa a cada execução para garantir que apenas os dados mais recentes da API sejam processados, mantendo intactos os arquivos históricos em `data/raw/legacy/`.
 - **Silver (`data/silver`):** Contém arquivos Parquet versionados (`empresas_<timestamp>.parquet`) com os dados de todos os CSVs unificados, limpos e com colunas padronizadas. Esta camada representa a "fonte da verdade" para os dados processados.
 - **Gold (`data/gold`):** Contém arquivos Parquet versionados (`historico_operadores_<timestamp>.parquet`) com a série histórica anual de operadores ativos por categoria, pronto para consumo por dashboards ou relatórios.
 

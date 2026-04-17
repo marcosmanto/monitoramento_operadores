@@ -45,15 +45,33 @@ def snapshot_ano(df: pl.DataFrame):
         # Filtra operadores ativos conforme a regra de cada categoria:
         # - Semiurbano: possui a flag explícita 'situacao_empresa'
         # - Demais: validamos se a licença não expirou
+        # df_latest_snapshot = df_latest_snapshot.filter(
+        #     (
+        #         (pl.col("categoria") == "Semiurbano")
+        #         & (pl.col("situacao_empresa") == "Empresa Habilitada")
+        #     )
+        #     | (
+        #         (pl.col("categoria") != "Semiurbano")
+        #         & pl.col("data_validade").is_not_null()
+        #         & (pl.col("data_validade") >= pl.col("data_snapshot"))
+        #     )
+        # )
         df_latest_snapshot = df_latest_snapshot.filter(
             (
+                # 🔹 SEMIURBANO (CKAN)
                 (pl.col("categoria") == "Semiurbano")
+                & pl.col("situacao_empresa").is_not_null()
                 & (pl.col("situacao_empresa") == "Empresa Habilitada")
             )
             | (
+                # 🔹 CKAN (Regular + Fretamento)
                 (pl.col("categoria") != "Semiurbano")
                 & pl.col("data_validade").is_not_null()
                 & (pl.col("data_validade") >= pl.col("data_snapshot"))
+            )
+            | (
+                # 🔥 LEGACY (NÃO TEM ESSAS COLUNAS)
+                pl.col("data_validade").is_null()
             )
         )
 
