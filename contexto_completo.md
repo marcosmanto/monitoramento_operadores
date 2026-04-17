@@ -7,6 +7,7 @@
 ├── src
 │   ├── aggregate.py
 │   ├── extract.py
+│   ├── pipeline.py
 │   ├── transform.py
 │   └── utils.py
 ├── .gitignore
@@ -19,22 +20,52 @@
 
 ### Arquivo: `.gitignore`
 ```text
-# Python-generated files
+# --- Python ---
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[oc]
+*.so
+
+# Distribution / packaging
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+*.egg
 
-# Virtual environments
-.venv
+# --- Orchestration ---
+# Prefect local database
+prefect.db
+prefect.db-journal
+
+# --- Data Outputs ---
+# Ignore all generated data files.
+# Add a .gitkeep file in these directories if you want to commit the empty folder structure.
+data/raw/
+data/silver/
+data/gold/
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+
+# --- OS Generated Files ---
+.DS_Store
+Thumbs.db
+
+# --- Environment & Logs ---
+.env
+*.log
 ```
 
 ### Arquivo: `main.py`
 ```py
+from src.pipeline import run_pipeline
+
+
 def main():
-    print("Hello from monitoramento-operadores!")
+    print("Iniciando o pipeline de dados da ANTT...")
+    run_pipeline()
 
 
 if __name__ == "__main__":
@@ -51,6 +82,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "polars>=1.39.3",
+    "prefect>=3.6.26",
     "pyarrow>=23.0.1",
     "requests>=2.33.1",
 ]
@@ -58,32 +90,124 @@ dependencies = [
 
 ### Arquivo: `README.md`
 ```md
+# Monitoramento de Operadores de Transporte da ANTT
 
+Este projeto implementa um pipeline de dados para extrair, transformar e agregar informações sobre as empresas de transporte de passageiros (Regular, Fretamento e Semiurbano) habilitadas pela Agência Nacional de Transportes Terrestres (ANTT), a partir de seu portal de dados abertos.
+
+O objetivo é criar uma série histórica confiável do número de operadores ativos por categoria, servindo como base para análises e relatórios.
+
+## ✨ Funcionalidades
+
+- **Extração Automática**: Baixa todos os datasets de operadores habilitados (Fretamento, Regular, Semiurbano) diretamente da API de Dados Abertos da ANTT.
+- **Limpeza e Padronização**: Unifica os múltiplos arquivos CSV, que possuem schemas e codificações diferentes, em um formato padronizado.
+- **Série Histórica**: Processa os snapshots mensais para gerar uma série histórica anual do número de operadores únicos por categoria.
+- **Orquestração Robusta**: Utiliza **Prefect** para orquestrar o pipeline (Extract → Transform → Aggregate), garantindo a ordem de execução, logs detalhados e resiliência.
+- **Versionamento de Dados**: Salva os artefatos das camadas Silver e Gold com um timestamp, criando um histórico de execuções e facilitando a rastreabilidade.
+
+## 🛠️ Tecnologias Utilizadas
+
+- **Python 3.13+**
+- **Polars**: Para manipulação de dados de alta performance.
+- **Prefect**: Para orquestração do fluxo de trabalho (pipeline).
+- **Requests**: Para realizar as chamadas HTTP à API da ANTT.
+- **uv**: Para gerenciamento de ambiente virtual e dependências.
+
+## 📂 Estrutura do Projeto
+
+```text
+.
+├── data/
+│   ├── raw/      # CSVs brutos baixados da ANTT
+│   ├── silver/   # Dados limpos e unificados (Parquet)
+│   └── gold/     # Dados agregados para análise (Parquet)
+├── src/
+│   ├── extract.py
+│   ├── transform.py
+│   ├── aggregate.py
+│   └── pipeline.py # Orquestrador Prefect
+├── main.py         # Ponto de entrada para executar o pipeline
+└── ...
+```
+
+## 🚀 Instalação e Execução
+
+### 1. Pré-requisitos
+
+Certifique-se de ter o [uv](https://github.com/astral-sh/uv) instalado.
+
+### 2. Instalação
+
+Clone o repositório e instale as dependências:
+
+```bash
+# Cria o ambiente virtual e instala as dependências do pyproject.toml
+uv sync
+```
+
+### 3. Execução do Pipeline
+
+Para rodar o pipeline completo (Extract → Transform → Aggregate), execute:
+
+```bash
+uv run python main.py
+```
+
+Ao final da execução, os arquivos processados estarão disponíveis nas pastas `data/silver` e `data/gold`.
+
+## 📊 Camadas de Dados (Medallion Architecture)
+
+- **Raw (`data/raw`):** Contém os arquivos CSV originais baixados da ANTT. A pasta é limpa a cada execução para garantir que apenas os dados mais recentes sejam processados.
+- **Silver (`data/silver`):** Contém arquivos Parquet versionados (`empresas_<timestamp>.parquet`) com os dados de todos os CSVs unificados, limpos e com colunas padronizadas. Esta camada representa a "fonte da verdade" para os dados processados.
+- **Gold (`data/gold`):** Contém arquivos Parquet versionados (`historico_operadores_<timestamp>.parquet`) com a série histórica anual de operadores ativos por categoria, pronto para consumo por dashboards ou relatórios.
+
+## ⚙️ Orquestração com Prefect
+
+O pipeline é gerenciado pelo Prefect, o que permite um controle fino sobre a execução. Para visualizar o dashboard web com o histórico de execuções, status e logs, execute em um terminal separado:
+
+```bash
+uv run prefect server start
+```
+
+Depois, acesse `http://127.0.0.1:4200` no seu navegador.
 ```
 
 ### Arquivo: `src/aggregate.py`
 ```py
+from datetime import datetime
 from pathlib import Path
 
 import polars as pl
 
-ANOS = list(range(2016, 2026))
-
 
 def load():
-    return pl.read_parquet("data/silver/empresas.parquet")
+    silver_folder = Path("data/silver")
+    try:
+        # Encontra o arquivo silver mais recente baseado no timestamp do nome
+        latest_file = sorted(silver_folder.glob("empresas_*.parquet"))[-1]
+    except IndexError:
+        raise FileNotFoundError(
+            "Nenhum arquivo silver encontrado em 'data/silver/'. Rode a etapa de transformação primeiro."
+        )
+    print(f"Lendo camada Silver de: {latest_file}")
+    return pl.read_parquet(latest_file)
 
 
 def snapshot_ano(df: pl.DataFrame):
+    # Garante que a coluna seja tratada como Data
+    df = df.with_columns(pl.col("data_snapshot").cast(pl.Date))
+
     resultados = []
 
-    for ano in ANOS:
+    # Obtém os anos disponíveis dinamicamente direto dos dados
+    anos_disponiveis = (
+        df.select(pl.col("data_snapshot").dt.year().unique().drop_nulls())
+        .to_series()
+        .to_list()
+    )
+
+    for ano in sorted(anos_disponiveis):
         # Filtra todos os snapshots para o ano corrente
         df_ano = df.filter(pl.col("data_snapshot").dt.year() == ano)
-
-        # Se não houver dados para este ano, pula para o próximo
-        if df_ano.height == 0:
-            continue
 
         # Encontra a data do último snapshot disponível para aquele ano
         latest_snapshot_date = df_ano.select(pl.max("data_snapshot")).item()
@@ -97,7 +221,12 @@ def snapshot_ano(df: pl.DataFrame):
         agg = (
             df_latest_snapshot.group_by("categoria")
             .agg(pl.col("cnpj").n_unique().alias("qtd"))
-            .with_columns(pl.lit(ano).alias("ano"))
+            .with_columns(
+                [
+                    pl.lit(ano).alias("ano"),
+                    pl.lit(latest_snapshot_date).alias("data_referencia"),
+                ]
+            )
         )
 
         resultados.append(agg)
@@ -107,12 +236,15 @@ def snapshot_ano(df: pl.DataFrame):
             pl.DataFrame()
         )  # Retorna um DataFrame vazio se nenhum dado foi processado
 
-    return pl.concat(resultados)
+    return pl.concat(resultados).sort(["ano", "categoria"])
 
 
 def save_gold(df: pl.DataFrame):
     Path("data/gold").mkdir(parents=True, exist_ok=True)
-    df.write_parquet("data/gold/historico_operadores.parquet")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = Path("data/gold") / f"historico_operadores_{timestamp}.parquet"
+    df.write_parquet(filepath)
+    print(f"✔ Camada Gold salva com sucesso em: {filepath}")
 
 
 if __name__ == "__main__":
@@ -151,6 +283,10 @@ def get_csv_urls():
 def download_raw():
     Path("data/raw").mkdir(parents=True, exist_ok=True)
 
+    # Limpa os arquivos antigos para evitar sujeira de execuções anteriores
+    for old_file in Path("data/raw").glob("*.csv"):
+        old_file.unlink()
+
     csvs = get_csv_urls()
     for filename, csv_url in csvs:
         print(f"Baixando dados de: {csv_url}")
@@ -166,8 +302,55 @@ if __name__ == "__main__":
     download_raw()
 ```
 
+### Arquivo: `src/pipeline.py`
+```py
+from prefect import flow, task
+
+from src.aggregate import load as load_silver
+from src.aggregate import save_gold, snapshot_ano
+
+# Importa as funções do seu projeto
+from src.extract import download_raw
+from src.transform import (
+    add_snapshot_date,
+    classify_categoria,
+    load_raw,
+    normalize,
+    save_silver,
+)
+
+
+@task
+def task_extract():
+    download_raw()
+
+
+@task
+def task_transform():
+    df = load_raw()
+    df = add_snapshot_date(df)
+    df = normalize(df)
+    df = classify_categoria(df)
+    save_silver(df)
+
+
+@task
+def task_aggregate():
+    df = load_silver()
+    hist = snapshot_ano(df)
+    save_gold(hist)
+
+
+@flow(name="Pipeline Monitoramento Operadores")
+def run_pipeline():
+    e = task_extract()
+    t = task_transform(wait_for=[e])
+    task_aggregate(wait_for=[t])
+```
+
 ### Arquivo: `src/transform.py`
 ```py
+from datetime import datetime
 from pathlib import Path
 
 import polars as pl
@@ -323,7 +506,10 @@ def classify_categoria(df: pl.DataFrame) -> pl.DataFrame:
 
 def save_silver(df: pl.DataFrame):
     Path("data/silver").mkdir(parents=True, exist_ok=True)
-    df.write_parquet("data/silver/empresas.parquet")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = Path("data/silver") / f"empresas_{timestamp}.parquet"
+    df.write_parquet(filepath)
+    print(f"✔ Camada Silver salva com sucesso em: {filepath}")
 
 
 if __name__ == "__main__":
