@@ -1,0 +1,36 @@
+# --- Python ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[oc]
+*.so
+
+# Distribution / packaging
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+
+# --- Orchestration ---
+# Prefect local database
+prefect.db
+prefect.db-journal
+
+# --- Data Outputs ---
+# Ignore all generated data files.
+# Add a .gitkeep file in these directories if you want to commit the empty folder structure.
+data/raw/
+data/silver/
+data/gold/
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+
+# --- OS Generated Files ---
+.DS_Store
+Thumbs.db
+
+# --- Environment & Logs ---
+.env
+*.log
